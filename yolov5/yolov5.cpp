@@ -8,9 +8,9 @@
 #define DEVICE 0  // GPU id
 #define NMS_THRESH 0.4
 #define CONF_THRESH 0.5
-#define BATCH_SIZE 1
+#define BATCH_SIZE 8
 
-#define NET s  // s m l x
+#define NET l  // s m l x
 #define NETSTRUCT(str) createEngine_##str
 #define CREATENET(net) NETSTRUCT(net)
 #define STR1(x) #x
@@ -209,14 +209,40 @@ ICudaEngine* createEngine_l(unsigned int maxBatchSize, IBuilder* builder, IBuild
     INetworkDefinition* network = builder->createNetworkV2(0U);
 
     // Create input tensor of shape {3, INPUT_H, INPUT_W} with name INPUT_BLOB_NAME
-    ITensor* data = network->addInput(INPUT_BLOB_NAME, dt, Dims3{ 3, INPUT_H, INPUT_W });
+    ITensor* data = network->addInput(INPUT_BLOB_NAME, dt, Dims3{INPUT_H, INPUT_W, 3});
     assert(data);
 
     std::map<std::string, Weights> weightMap = loadWeights("../yolov5l.wts");
     Weights emptywts{ DataType::kFLOAT, nullptr, 0 };
+    
+    Weights emptywts_fp16 {DataType::kHALF, nullptr, 0};
+    Weights dataScaleWeights;
+    // IScaleLayer* dataScale = nullptr;
+// #ifdef USE_FP16
+//     short sScale = 1.0 / 255;
+//     dataScaleWeights.type = DataType::kHALF;
+//     dataScaleWeights.values = &sScale;
+//     dataScaleWeights.count = 1;
+//     auto dataScale = network->addScale(*data, nvinfer1::ScaleMode::kUNIFORM, emptywts_fp16, dataScaleWeights, emptywts_fp16);
 
+// #else
+    float fScale = 1.0 / 255;
+    dataScaleWeights.type = DataType::kFLOAT;
+    dataScaleWeights.values = &fScale;
+    dataScaleWeights.count = 1;
+    auto dataScale = network->addScale(*data, nvinfer1::ScaleMode::kUNIFORM, emptywts, dataScaleWeights, emptywts);
+
+// #endif
+    assert(dataScale);
+
+    #if 1
+    auto dataTranspose = network->addShuffle(*dataScale->getOutput(0));
+    Permutation permutation = {2, 0, 1};
+   
+    dataTranspose->setFirstTranspose(permutation);
+    #endif
     /* ------ yolov5 backbone------ */
-    auto focus0 = focus(network, weightMap, *data, 3, 64, 3, "model.0");
+    auto focus0 = focus(network, weightMap, *dataTranspose->getOutput(0), 3, 64, 3, "model.0");
     auto conv1 = convBlock(network, weightMap, *focus0->getOutput(0), 128, 3, 2, 1, "model.1");
     auto bottleneck_CSP2 = bottleneckCSP(network, weightMap, *conv1->getOutput(0), 128, 128, 3, true, 1, 0.5, "model.2");
     auto conv3 = convBlock(network, weightMap, *bottleneck_CSP2->getOutput(0), 256, 3, 2, 1, "model.3");
@@ -489,13 +515,32 @@ int main(int argc, char** argv) {
             cv::Mat img = cv::imread(std::string(argv[2]) + "/" + file_names[f - fcount + 1 + b]);
             if (img.empty()) continue;
             cv::Mat pr_img = preprocess_img(img); // letterbox BGR to RGB
+            
             int i = 0;
             for (int row = 0; row < INPUT_H; ++row) {
                 uchar* uc_pixel = pr_img.data + row * pr_img.step;
                 for (int col = 0; col < INPUT_W; ++col) {
+                    #if 0
                     data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] / 255.0;
                     data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] / 255.0;
                     data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] / 255.0;
+                    #endif
+                    #if 0
+                    data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] / 255.0;
+                    #endif
+                    #if 1
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 0] = (float)uc_pixel[2] ;
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 1] = (float)uc_pixel[1] ;
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 2] = (float)uc_pixel[0] ;
+                    #endif 
+                     #if 0
+                    data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] ;
+                    data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] ;
+                    data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] ;
+                    #endif
+
                     uc_pixel += 3;
                     ++i;
                 }
