@@ -23,10 +23,7 @@
     } while (0)
 
 
-#define USE_FP16  // comment out this if want to use FP32
-#define DEVICE 0  // GPU id
-#define NMS_THRESH 0.4
-#define BBOX_CONF_THRESH 0.5
+
 
 using namespace nvinfer1;
 
@@ -54,8 +51,8 @@ cv::Mat preprocess_img(cv::Mat& img) {
         y = 0;
     }
     cv::Mat re(h, w, CV_8UC3);
-    cv::resize(img, re, re.size(), 0, 0, cv::INTER_CUBIC);
-    cv::Mat out(INPUT_H, INPUT_W, CV_8UC3, cv::Scalar(128, 128, 128));
+    cv::resize(img, re, re.size(), 0, 0, cv::INTER_LINEAR);
+    cv::Mat out(INPUT_H, INPUT_W, CV_8UC3, cv::Scalar(0, 0, 0));
     re.copyTo(out(cv::Rect(x, y, re.cols, re.rows)));
     return out;
 }
@@ -171,6 +168,99 @@ std::map<std::string, Weights> loadWeights(const std::string file) {
     return weightMap;
 }
 
+std::vector<float> getAnchors(std::map<std::string, Weights>& weightMap)
+{
+ #if defined(PERSON)
+
+    std::vector<float> anchors_yolo = {
+        12,14,  11,25,  16,38,
+        33,23,  30,71,  24,55,
+        28,25,  14,34,  18,38
+        
+
+    };
+#elif defined(VEHICLE)
+     std::vector<float> anchors_yolo = {
+         10,13,  16,30,  33,23,
+       
+        30,61,  62,45,  59,119,
+         116,90,  156,198,  373,326
+
+
+    };
+#else
+     std::vector<float> anchors_yolo = {
+         10,13,  16,30,  33,23,
+       
+        30,61,  62,45,  59,119,
+         116,90,  156,198,  373,326
+
+
+    };
+#endif
+    // Weights Yolo_Anchors = weightMap["model.24.anchor_grid"];
+    // assert(Yolo_Anchors.count == 18);
+    // int each_yololayer_anchorsnum = Yolo_Anchors.count / 3;
+    // const float* tempAnchors = (const float*)(Yolo_Anchors.values);
+    // for (int i = 0; i < Yolo_Anchors.count; i++)
+    // {
+    //     if (i < each_yololayer_anchorsnum)
+    //     {
+    //         anchors_yolo.push_back(const_cast<float*>(tempAnchors)[i]);
+    //     }
+    //     if ((i >= each_yololayer_anchorsnum) && (i < (2 * each_yololayer_anchorsnum)))
+    //     {
+    //         anchors_yolo.push_back(const_cast<float*>(tempAnchors)[i]);
+    //     }
+    //     if (i >= (2 * each_yololayer_anchorsnum))
+    //     {
+    //         anchors_yolo.push_back(const_cast<float*>(tempAnchors)[i]);
+    //     }
+    // }
+    
+    return anchors_yolo;
+}
+
+IPluginV2Layer* addYoLoLayer(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, IConvolutionLayer* det0, IConvolutionLayer* det1, IConvolutionLayer* det2)
+{
+    auto creator = getPluginRegistry()->getPluginCreator(Yolo::YOLOV3_PLUGIN_NAME, "1");
+    std::vector<float> anchors_yolo = getAnchors(weightMap);
+    PluginField pluginMultidata[4];
+    int NetData[4];
+    NetData[0] = Yolo::CLASS_NUM;
+    NetData[1] = Yolo::INPUT_W;
+    NetData[2] = Yolo::INPUT_H;
+    NetData[3] = Yolo::MAX_OUTPUT_BBOX_COUNT;
+    pluginMultidata[0].data = NetData;
+    pluginMultidata[0].length = 3;
+    pluginMultidata[0].name = "netdata";
+    pluginMultidata[0].type = PluginFieldType::kFLOAT32;
+    int scale[3] = { 8, 16, 32 };
+    int plugindata[3][8];
+    std::string names[3];
+    for (int k = 1; k < 4; k++)
+    {
+        plugindata[k - 1][0] = Yolo::INPUT_W / scale[k - 1];
+        plugindata[k - 1][1] = Yolo::INPUT_H / scale[k - 1];
+        for (int i = 2; i < 8; i++)
+        {
+            plugindata[k - 1][i] = int(anchors_yolo[(k - 1) * 6 + i - 2]);
+        }
+        pluginMultidata[k].data = plugindata[k - 1];
+        pluginMultidata[k].length = 8;
+        names[k - 1] = "yolodata" + std::to_string(k);
+        pluginMultidata[k].name = names[k - 1].c_str();
+        pluginMultidata[k].type = PluginFieldType::kFLOAT32;
+    }
+    PluginFieldCollection pluginData;
+    pluginData.nbFields = 4;
+    pluginData.fields = pluginMultidata;
+    IPluginV2 *pluginObj = creator->createPlugin("yololayer", &pluginData);
+    ITensor* inputTensors_yolo[] = { det0->getOutput(0), det1->getOutput(0), det2->getOutput(0) };
+    auto yolo = network->addPluginV2(inputTensors_yolo, 3, *pluginObj);
+    return yolo;
+}
+
 IScaleLayer* addBatchNorm2d(INetworkDefinition *network, std::map<std::string, Weights>& weightMap, ITensor& input, std::string lname, float eps) {
     float *gamma = (float*)weightMap[lname + ".weight"].values;
     float *beta = (float*)weightMap[lname + ".bias"].values;
@@ -224,14 +314,30 @@ ICudaEngine* createEngine(unsigned int maxBatchSize, IBuilder* builder, IBuilder
     INetworkDefinition* network = builder->createNetworkV2(0U);
 
     // Create input tensor of shape {3, INPUT_H, INPUT_W} with name INPUT_BLOB_NAME
-    ITensor* data = network->addInput(INPUT_BLOB_NAME, dt, Dims3{3, INPUT_H, INPUT_W});
+    ITensor* data = network->addInput(INPUT_BLOB_NAME, dt, Dims3{INPUT_H, INPUT_W, 3});
     assert(data);
 
-    std::map<std::string, Weights> weightMap = loadWeights("../yolov3.wts");
+    std::map<std::string, Weights> weightMap = loadWeights(WEIGHT_PATH);
     Weights emptywts{DataType::kFLOAT, nullptr, 0};
 
+    Weights dataScaleWeights;
+    float fScale = 1.0 / 255;
+    dataScaleWeights.type = DataType::kFLOAT;
+    dataScaleWeights.values = &fScale;
+    dataScaleWeights.count = 1;
+    auto dataScale = network->addScale(*data, nvinfer1::ScaleMode::kUNIFORM, emptywts, dataScaleWeights, emptywts);
+    assert(dataScale);
+
+    #if 1
+    auto dataTranspose = network->addShuffle(*dataScale->getOutput(0));
+    Permutation permutation = {2, 0, 1};
+   
+    dataTranspose->setFirstTranspose(permutation);
+    #endif
+
+
     // Yeah I am stupid, I just want to expand the complete arch of darknet..
-    auto lr0 = convBnLeaky(network, weightMap, *data, 32, 3, 1, 1, 0);
+    auto lr0 = convBnLeaky(network, weightMap, *dataTranspose->getOutput(0), 32, 3, 1, 1, 0);
     auto lr1 = convBnLeaky(network, weightMap, *lr0->getOutput(0), 64, 3, 2, 1, 1);
     auto lr2 = convBnLeaky(network, weightMap, *lr1->getOutput(0), 32, 1, 1, 0, 2);
     auto lr3 = convBnLeaky(network, weightMap, *lr2->getOutput(0), 64, 3, 1, 1, 3);
@@ -358,12 +464,12 @@ ICudaEngine* createEngine(unsigned int maxBatchSize, IBuilder* builder, IBuilder
     IConvolutionLayer* conv105 = network->addConvolutionNd(*lr104->getOutput(0), 3 * (Yolo::CLASS_NUM + 5), DimsHW{1, 1}, weightMap["module_list.105.Conv2d.weight"], weightMap["module_list.105.Conv2d.bias"]);
     assert(conv105);
 
-    auto creator = getPluginRegistry()->getPluginCreator("YoloLayer_TRT", "1");
-    const PluginFieldCollection* pluginData = creator->getFieldNames();
-    IPluginV2 *pluginObj = creator->createPlugin("yololayer", pluginData);
-    ITensor* inputTensors_yolo[] = {conv81->getOutput(0), conv93->getOutput(0), conv105->getOutput(0)};
-    auto yolo = network->addPluginV2(inputTensors_yolo, 3, *pluginObj);
-
+    // auto creator = getPluginRegistry()->getPluginCreator(Yolo::YOLOV3_PLUGIN_NAME, "1");
+    // const PluginFieldCollection* pluginData = creator->getFieldNames();
+    // IPluginV2 *pluginObj = creator->createPlugin("yololayer", pluginData);
+    // ITensor* inputTensors_yolo[] = {conv81->getOutput(0), conv93->getOutput(0), conv105->getOutput(0)};
+    // auto yolo = network->addPluginV2(inputTensors_yolo, 3, *pluginObj);
+    auto yolo = addYoLoLayer(network, weightMap, conv81, conv93, conv105);
     yolo->getOutput(0)->setName(OUTPUT_BLOB_NAME);
     network->markOutput(*yolo->getOutput(0));
 
@@ -469,7 +575,7 @@ int main(int argc, char** argv) {
 
     if (argc == 2 && std::string(argv[1]) == "-s") {
         IHostMemory* modelStream{nullptr};
-        APIToModel(1, &modelStream);
+        APIToModel(BATCH_SIZE, &modelStream);
         assert(modelStream != nullptr);
         std::ofstream p("yolov3.engine", std::ios::binary);
         if (!p) {
@@ -523,11 +629,36 @@ int main(int argc, char** argv) {
         cv::Mat img = cv::imread(std::string(argv[2]) + "/" + f);
         if (img.empty()) continue;
         cv::Mat pr_img = preprocess_img(img);
-        for (int i = 0; i < INPUT_H * INPUT_W; i++) {
-            data[i] = pr_img.at<cv::Vec3b>(i)[2] / 255.0;
-            data[i + INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[1] / 255.0;
-            data[i + 2 * INPUT_H * INPUT_W] = pr_img.at<cv::Vec3b>(i)[0] / 255.0;
-        }
+        bool b = 0;
+        int i = 0;
+            for (int row = 0; row < INPUT_H; ++row) {
+                uchar* uc_pixel = pr_img.data + row * pr_img.step;
+                for (int col = 0; col < INPUT_W; ++col) {
+                    #if 0
+                    data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] / 255.0;
+                    #endif
+                    #if 0
+                    data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] / 255.0;
+                    data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] / 255.0;
+                    #endif
+                    #if 1
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 0] = (float)uc_pixel[2] ;
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 1] = (float)uc_pixel[1] ;
+                    data[b * 3 * INPUT_H * INPUT_W + (INPUT_W * 3) * row + 3 * col + 2] = (float)uc_pixel[0] ;
+                    #endif 
+                     #if 0
+                    data[b * 3 * INPUT_H * INPUT_W + i] = (float)uc_pixel[2] ;
+                    data[b * 3 * INPUT_H * INPUT_W + i + INPUT_H * INPUT_W] = (float)uc_pixel[1] ;
+                    data[b * 3 * INPUT_H * INPUT_W + i + 2 * INPUT_H * INPUT_W] = (float)uc_pixel[0] ;
+                    #endif
+
+                    uc_pixel += 3;
+                    ++i;
+                }
+            }
 
         // Run inference
         auto start = std::chrono::system_clock::now();

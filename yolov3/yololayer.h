@@ -9,14 +9,23 @@
 #include "Utils.h"
 #include <iostream>
 
+#define USE_FP16  // comment out this if want to use FP32
+#define DEVICE 0  // GPU id
+#define NMS_THRESH 0.4
+#define BBOX_CONF_THRESH 0.5
+#define BATCH_SIZE 8
+#define WEIGHT_PATH ("../car.wts")
+
 namespace Yolo
 {
     static constexpr int CHECK_COUNT = 3;
     static constexpr float IGNORE_THRESH = 0.1f;
     static constexpr int MAX_OUTPUT_BBOX_COUNT = 1000;
-    static constexpr int CLASS_NUM = 80;
-    static constexpr int INPUT_H = 608;
-    static constexpr int INPUT_W = 608;
+    static constexpr int CLASS_NUM = 1;
+    static constexpr int INPUT_H = 416;
+    static constexpr int INPUT_W = 416;
+    static constexpr const char* YOLOV3_PLUGIN_NAME = "YoloV3Layer_TRT";
+   
 
     struct YoloKernel
     {
@@ -25,21 +34,48 @@ namespace Yolo
         float anchors[CHECK_COUNT*2];
     };
 
-    static constexpr YoloKernel yolo1 = {
-        INPUT_W / 32,
-        INPUT_H / 32,
-        {116,90,  156,198,  373,326}
-    };
-    static constexpr YoloKernel yolo2 = {
-        INPUT_W / 16,
-        INPUT_H / 16,
-        {30,61,  62,45,  59,119}
-    };
-    static constexpr YoloKernel yolo3 = {
-        INPUT_W / 8,
-        INPUT_H / 8,
-        {10,13,  16,30,  33,23}
-    };
+    #define VEHICLE
+
+    
+
+    // static constexpr YoloKernel yolo1 = {
+    //     INPUT_W / 32,
+    //     INPUT_H / 32,
+    //     #if defined(PERSON)
+        
+    //      {28,25,  14,34,  18,38}
+    //     #elif defined(VEHICLE)
+        
+    //     {10,13,  16,30,  33,23}
+    //     #else
+    //     {10,13,  16,30,  33,23}
+           
+    //     #endif
+
+    // };
+    // static constexpr YoloKernel yolo2 = {
+    //     INPUT_W / 16,
+    //     INPUT_H / 16,
+    //     #if defined(PERSON)
+       
+    //     {33,23,  30,71,  24,55}
+    //     #elif defined(VEHICLE)
+    //     {30,61,  62,45,  59,119}
+    //     #else
+    //     {30,61,  62,45,  59,119}
+    //     #endif
+    // };
+    // static constexpr YoloKernel yolo3 = {
+    //     INPUT_W / 8,
+    //     INPUT_H / 8,
+    //     #if defined(PERSON)
+    //     {12,14,  11,25,  16,38}
+    //     #elif defined(VEHICLE)
+    //     {116,90,  156,198,  373,326}
+    //     #else
+    //     {116,90,  156,198,  373,326}
+    //     #endif
+    // };
 
     static constexpr int LOCATIONS = 4;
     struct alignas(float) Detection{
@@ -54,13 +90,13 @@ namespace Yolo
 
 namespace nvinfer1
 {
-    class YoloLayerPlugin: public IPluginV2IOExt
+    class YoloV3LayerPlugin: public IPluginV2IOExt
     {
         public:
-            explicit YoloLayerPlugin();
-            YoloLayerPlugin(const void* data, size_t length);
+            explicit YoloV3LayerPlugin(int classCount, int netWidth, int netHeight, int maxOut, const std::vector<Yolo::YoloKernel>& vYoloKernel);
+            YoloV3LayerPlugin(const void* data, size_t length);
 
-            ~YoloLayerPlugin();
+            ~YoloV3LayerPlugin();
 
             int getNbOutputs() const override
             {
@@ -112,19 +148,23 @@ namespace nvinfer1
 
         private:
             void forwardGpu(const float *const * inputs,float * output, cudaStream_t stream,int batchSize = 1);
-            int mClassCount;
-            int mKernelCount;
-            std::vector<Yolo::YoloKernel> mYoloKernel;
-            int mThreadCount = 256;
-            const char* mPluginNamespace;
+              int mThreadCount = 256;
+        const char* mPluginNamespace;
+        int mKernelCount;
+        int mClassCount;
+        int mYoloV5NetWidth;
+        int mYoloV5NetHeight;
+        int mMaxOutObject;
+        std::vector<Yolo::YoloKernel> mYoloKernel;
+		void** mAnchor;
     };
 
-    class YoloPluginCreator : public IPluginCreator
+    class YoloV3PluginCreator : public IPluginCreator
     {
         public:
-            YoloPluginCreator();
+            YoloV3PluginCreator();
 
-            ~YoloPluginCreator() override = default;
+            ~YoloV3PluginCreator() override = default;
 
             const char* getPluginName() const override;
 
@@ -151,7 +191,7 @@ namespace nvinfer1
             static PluginFieldCollection mFC;
             static std::vector<PluginField> mPluginAttributes;
     };
-    REGISTER_TENSORRT_PLUGIN(YoloPluginCreator);
+    REGISTER_TENSORRT_PLUGIN(YoloV3PluginCreator);
 };
 
 #endif 
