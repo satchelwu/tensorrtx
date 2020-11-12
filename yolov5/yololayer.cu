@@ -160,7 +160,7 @@ namespace nvinfer1
 
     __device__ float Logist(float data) { return 1.0f / (1.0f + expf(-data)); };
 
-    __global__ void CalDetection(const float *input, float *output, int noElements,
+    __global__ void CalDetection_v5(const float *input, float *output, int noElements,
         const int netwidth, const int netheight, int maxoutobject, int yoloWidth, int yoloHeight, const float anchors[CHECK_COUNT * 2], int classes, int outputElem)
     {
 
@@ -229,7 +229,7 @@ namespace nvinfer1
                 mThreadCount = numElem;
 
             //printf("Net: %d  %d \n", mYoloV5NetWidth, mYoloV5NetHeight);
-            CalDetection << < (yolo.width*yolo.height*batchSize + mThreadCount - 1) / mThreadCount, mThreadCount >> >
+            CalDetection_v5 << < (yolo.width*yolo.height*batchSize + mThreadCount - 1) / mThreadCount, mThreadCount >> >
                 (inputs[i], output, numElem, mYoloV5NetWidth, mYoloV5NetHeight, mMaxOutObject, yolo.width, yolo.height, (float *)mAnchor[i], mClassCount, outputElem);
         }
     }
