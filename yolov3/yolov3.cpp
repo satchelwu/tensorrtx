@@ -99,15 +99,15 @@ float iou(float lbox[4], float rbox[4]) {
 }
 
 bool cmp(const Yolo::Detection& a, const Yolo::Detection& b) {
-    return a.det_confidence > b.det_confidence;
+    return a.class_confidence > b.class_confidence;
 }
 
 void nms(std::vector<Yolo::Detection>& res, float *output, float nms_thresh = NMS_THRESH) {
     std::map<float, std::vector<Yolo::Detection>> m;
     for (int i = 0; i < output[0] && i < 1000; i++) {
-        if (output[1 + 7 * i + 4] <= BBOX_CONF_THRESH) continue;
+        if (output[1 + 6 * i + 4] <= BBOX_CONF_THRESH) continue;
         Yolo::Detection det;
-        memcpy(&det, &output[1 + 7 * i], 7 * sizeof(float));
+        memcpy(&det, &output[1 + 6 * i], 6 * sizeof(float));
         if (m.count(det.class_id) == 0) m.emplace(det.class_id, std::vector<Yolo::Detection>());
         m[det.class_id].push_back(det);
     }
@@ -673,7 +673,7 @@ int main(int argc, char** argv) {
         std::cout << res.size() << std::endl;
         for (size_t j = 0; j < res.size(); j++) {
             float *p = (float*)&res[j];
-            for (size_t k = 0; k < 7; k++) {
+            for (size_t k = 0; k < 6; k++) {
                 std::cout << p[k] << ", ";
             }
             std::cout << std::endl;

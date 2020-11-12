@@ -201,9 +201,9 @@ namespace nvinfer1
             det->bbox[1] = (row + Logist(curInput[idx + k * info_len_i * total_grid + 1 * total_grid])) * netHeight / yoloHeight;
             det->bbox[2] = expf(curInput[idx + k * info_len_i * total_grid + 2 * total_grid]) * anchors[2*k];
             det->bbox[3] = expf(curInput[idx + k * info_len_i * total_grid + 3 * total_grid]) * anchors[2*k + 1];
-            det->det_confidence = box_prob;
-            det->class_id = class_id;
+            // det->det_confidence = box_prob;
             det->class_confidence = max_cls_prob;
+            det->class_id = class_id;
         }
     }
 

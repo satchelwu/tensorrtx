@@ -14,7 +14,8 @@
 #define NMS_THRESH 0.4
 #define BBOX_CONF_THRESH 0.5
 #define BATCH_SIZE 8
-#define WEIGHT_PATH ("../car.wts")
+#define WEIGHT_PATH ("../person.wts")
+#define PERSON
 
 namespace Yolo
 {
@@ -23,7 +24,7 @@ namespace Yolo
     static constexpr int MAX_OUTPUT_BBOX_COUNT = 1000;
     static constexpr int CLASS_NUM = 1;
     static constexpr int INPUT_H = 416;
-    static constexpr int INPUT_W = 416;
+    static constexpr int INPUT_W = 736;
     static constexpr const char* YOLOV3_PLUGIN_NAME = "YoloV3Layer_TRT";
    
 
@@ -34,7 +35,6 @@ namespace Yolo
         float anchors[CHECK_COUNT*2];
     };
 
-    #define VEHICLE
 
     
 
@@ -81,9 +81,9 @@ namespace Yolo
     struct alignas(float) Detection{
         //x y w h
         float bbox[LOCATIONS];
-        float det_confidence;
-        float class_id;
+        // float det_confidence;
         float class_confidence;
+        float class_id;
     };
 }
 
