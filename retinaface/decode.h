@@ -1,30 +1,31 @@
-#ifndef _DECODE_CU_H
-#define _DECODE_CU_H
+#pragma once
 
 #include <string>
 #include <vector>
 #include "NvInfer.h"
 
-namespace decodeplugin
+namespace RetinaFace
 {
     struct alignas(float) Detection{
         float bbox[4];  //x1 y1 x2 y2
         float class_confidence;
-        float landmark[10];
+        float landmark[8];
     };
-    static const int INPUT_H = 480;
+    static const int INPUT_H = 384;
     static const int INPUT_W = 640;
+    static const int NUM_LANDMARKS = 8;
+    static const int ENTRY_LENGTH = sizeof(RetinaFace::Detection);
 }
 
 namespace nvinfer1
 {
-    class DecodePlugin: public IPluginV2IOExt
+    class RetinaFaceDecodePlugin: public IPluginV2IOExt
     {
         public:
-            DecodePlugin();
-            DecodePlugin(const void* data, size_t length);
+            RetinaFaceDecodePlugin(const int net_width, const int net_height, const int num_landmarks);
+            RetinaFaceDecodePlugin(const void* data, size_t length);
 
-            ~DecodePlugin();
+            ~RetinaFaceDecodePlugin();
 
             int getNbOutputs() const override
             {
@@ -79,14 +80,19 @@ namespace nvinfer1
             void forwardGpu(const float *const * inputs, float* output, cudaStream_t stream, int batchSize = 1);
             int thread_count_ = 256;
             const char* mPluginNamespace;
+            int net_width;
+            int net_height;
+            int num_landmarks;
+            
+            
     };
 
-    class DecodePluginCreator : public IPluginCreator
+    class RetinaFaceDecodePluginCreator : public IPluginCreator
     {
         public:
-            DecodePluginCreator();
+            RetinaFaceDecodePluginCreator();
 
-            ~DecodePluginCreator() override = default;
+            ~RetinaFaceDecodePluginCreator() override = default;
 
             const char* getPluginName() const override;
 
@@ -113,7 +119,6 @@ namespace nvinfer1
             static PluginFieldCollection mFC;
             static std::vector<PluginField> mPluginAttributes;
     };
-    REGISTER_TENSORRT_PLUGIN(DecodePluginCreator);
+    REGISTER_TENSORRT_PLUGIN(RetinaFaceDecodePluginCreator);
 };
 
-#endif 

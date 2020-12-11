@@ -24,23 +24,27 @@ endif()
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -Wall -Ofast -Wfatal-errors -D_MWAITXINTRIN_H_INCLUDED")
 
-cuda_add_library(decodeplugin SHARED ${PROJECT_SOURCE_DIR}/decode.cu)
-target_link_libraries(decodeplugin nvinfer cudart)
+cuda_add_library(retinafaceplugin SHARED ${PROJECT_SOURCE_DIR}/decode.cu)
+target_link_libraries(retinafaceplugin nvinfer cudart)
 
-find_package(OpenCV)
+find_package(OpenCV REQUIRED)
 include_directories(OpenCV_INCLUDE_DIRS)
+include_directories("/usr/include/opencv4")
 
-add_executable(retina_r50 ${PROJECT_SOURCE_DIR}/retina_r50.cpp)
+add_executable(retina_r50 ${PROJECT_SOURCE_DIR}/calibrator.cpp ${PROJECT_SOURCE_DIR}/retina_r50.cpp)
 target_link_libraries(retina_r50 nvinfer)
 target_link_libraries(retina_r50 cudart)
 target_link_libraries(retina_r50 decodeplugin)
 target_link_libraries(retina_r50 ${OpenCV_LIBRARIES})
+target_link_libraries(retina_r50 ${OpenCV_LIBS})
 
-add_executable(retina_mnet ${PROJECT_SOURCE_DIR}/retina_mnet.cpp)
+add_executable(retina_mnet ${PROJECT_SOURCE_DIR}/calibrator.cpp ${PROJECT_SOURCE_DIR}/retina_mnet.cpp)
 target_link_libraries(retina_mnet nvinfer)
 target_link_libraries(retina_mnet cudart)
 target_link_libraries(retina_mnet decodeplugin)
 target_link_libraries(retina_mnet ${OpenCV_LIBRARIES})
+target_link_libraries(retina_mnet ${OpenCV_LIBS})
+
 
 add_definitions(-O2 -pthread)
 
