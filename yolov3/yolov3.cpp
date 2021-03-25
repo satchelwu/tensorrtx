@@ -30,7 +30,7 @@ using namespace nvinfer1;
 // stuff we know about the network and the input/output blobs
 static const int INPUT_H = Yolo::INPUT_H;
 static const int INPUT_W = Yolo::INPUT_W;
-static const int OUTPUT_SIZE = 1000 * 7 + 1;  // we assume the yololayer outputs no more than 1000 boxes that conf >= 0.1
+static const int OUTPUT_SIZE = 1000 * 6 + 1;  // we assume the yololayer outputs no more than 1000 boxes that conf >= 0.1
 const char* INPUT_BLOB_NAME = "data";
 const char* OUTPUT_BLOB_NAME = "prob";
 static Logger gLogger;
@@ -173,9 +173,10 @@ std::vector<float> getAnchors(std::map<std::string, Weights>& weightMap)
  #if defined(PERSON)
 
     std::vector<float> anchors_yolo = {
-        12,14,  11,25,  16,38,
-        33,23,  30,71,  24,55,
-        28,25,  14,34,  18,38
+        8,33, 10,49,  13,51,  
+        18,71,  19,90,  22,83,  
+        23,99,  25,114,  61,172
+
         
 
     };
